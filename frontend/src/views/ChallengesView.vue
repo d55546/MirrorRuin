@@ -11,9 +11,14 @@
     <!-- 标题 + 搜索 -->
     <div class="head">
       <h1 class="page-title">题目大厅</h1>
-      <div class="search">
-        <span class="s-ico">⌕</span>
-        <input v-model="search" placeholder="搜索题目…" @input="onSearch" />
+      <div class="head-actions">
+        <button v-if="canSubmitChallenge" class="submit-trigger" @click="showSubmit = true">
+          <span class="plus">+</span> 提交题目
+        </button>
+        <div class="search">
+          <span class="s-ico">⌕</span>
+          <input v-model="search" placeholder="搜索题目…" @input="onSearch" />
+        </div>
       </div>
     </div>
 
@@ -23,13 +28,81 @@
         v-for="c in CATEGORIES"
         :key="c"
         class="tab"
-        :class="{ active: active === c }"
+        :class="{ active: viewMode === 'lobby' && active === c }"
         @click="pick(c)"
       >{{ c }}</button>
+      <button
+        class="tab comp-tab"
+        :class="{ active: viewMode === 'competitions' }"
+        @click="viewMode = 'competitions'"
+      >🏆 比赛真题</button>
+    </div>
+
+    <!-- 比赛真题视图 -->
+    <div v-if="viewMode === 'competitions'" class="comp-view">
+      <!-- 比赛列表 -->
+      <div v-if="!selectedComp && !selectedEdition" class="ch-grid">
+        <div v-for="c in compList" :key="c.id" class="card comp-card" @click="selectedComp = c">
+          <div class="c-head" style="justify-content:center"><span class="c-icon">{{ c.icon }}</span></div>
+          <div class="c-title" style="text-align:center">{{ c.name }}</div>
+          <p class="c-desc" style="text-align:center">{{ c.description || '暂无描述' }}</p>
+        </div>
+      </div>
+
+      <!-- 届次列表 -->
+      <div v-else-if="!selectedEdition" class="edition-view">
+        <div class="back" @click="selectedComp = null">← 返回比赛列表</div>
+        <h2 class="edition-title">{{ selectedComp?.icon }} {{ selectedComp?.name }}</h2>
+        <div class="ch-grid">
+          <div v-for="e in editionList" :key="e.id" class="card comp-card" @click="selectedEdition = e">
+            <div class="c-head" style="justify-content:center"><span class="c-icon">📅</span></div>
+            <div class="c-title" style="text-align:center">{{ e.name }}</div>
+            <p class="c-desc" style="text-align:center">{{ e.year }} 年</p>
+            <p class="comp-earned" :class="{ scored: e.my_points > 0 }">
+              <span class="ce-label">已得分数：</span>
+              <b>{{ e.my_points }}</b>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 届次题目列表 -->
+      <div v-else class="edition-view">
+        <div class="back" @click="selectedEdition = null">← 返回届次列表</div>
+        <h2 class="edition-title">{{ selectedComp?.icon }} {{ selectedComp?.name }} · {{ selectedEdition?.name }}</h2>
+        <div class="ch-grid">
+          <router-link
+            v-for="ch in compChallenges"
+            :key="ch.id"
+            :to="`/comp-challenge/${ch.id}`"
+            class="card comp-card"
+            :class="{ 'comp-solved': ch.solved_by_me }"
+          >
+            <div class="c-head">
+              <span class="c-state" :class="{ done: ch.solved_by_me }">
+                {{ ch.solved_by_me ? '✓' : '' }}
+              </span>
+              <span class="c-pts">+{{ ch.points }}</span>
+            </div>
+            <div class="c-title-row">
+              <span v-if="ch.solved_by_me" class="solved-badge">✓ 已解</span>
+              <span class="c-title">{{ ch.title }}</span>
+            </div>
+            <span class="c-tag">{{ ch.category }}</span>
+            <div class="c-stars" :title="'难度 ' + ch.difficulty + ' 星'">
+              <i v-for="n in 5" :key="n" :class="['st', { on: n <= ch.difficulty }]">★</i>
+            </div>
+            <div class="c-foot">
+              <span class="c-cnt">{{ ch.solved_count }} 已解</span>
+              <span class="go">→</span>
+            </div>
+          </router-link>
+        </div>
+      </div>
     </div>
 
     <!-- 题目卡片网格 -->
-    <div class="ch-grid">
+    <div v-if="viewMode === 'lobby'" class="ch-grid">
       <router-link
         v-for="ch in pagedList"
         :key="ch.id"
@@ -64,11 +137,13 @@
     </div>
 
     <!-- 分页 -->
-    <div class="pager" v-if="!loading && list.length > 0">
+    <div class="pager" v-if="viewMode === 'lobby' && !loading && list.length > 0">
       <button class="pg" :disabled="page === 1" @click="page--">← 上一页</button>
       <span class="pg-info">第 {{ page }} / {{ totalPages }} 页 · 共 {{ total }} 题</span>
       <button class="pg" :disabled="page === totalPages" @click="page++">下一页 →</button>
     </div>
+
+    <SubmitChallengeModal v-if="showSubmit" @close="showSubmit = false" />
   </div>
 </template>
 
@@ -76,14 +151,30 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { CATEGORIES, challengesApi, type ChallengeCard } from '../api/challenges'
+import { competitionsApi, type Competition, type CompetitionEdition, type CompetitionChallenge } from '../api/competitions'
+import SubmitChallengeModal from '../components/SubmitChallengeModal.vue'
+import { useAuthStore } from '../stores/auth'
 
 const route = useRoute()
+const auth = useAuthStore()
 const list = ref<ChallengeCard[]>([])
 const total = ref(0)
 const queryCat = typeof route.query.category === 'string' ? route.query.category : ''
 const active = ref(CATEGORIES.includes(queryCat) ? queryCat : '全部')
 const search = ref('')
 const loading = ref(true)
+const showSubmit = ref(false)
+const canSubmitChallenge = computed(
+  () => auth.isAuthenticated && auth.user?.role !== 'admin',
+)
+
+// 比赛真题视图
+const viewMode = ref<'lobby' | 'competitions'>('lobby')
+const compList = ref<Competition[]>([])
+const selectedComp = ref<Competition | null>(null)
+const editionList = ref<CompetitionEdition[]>([])
+const selectedEdition = ref<CompetitionEdition | null>(null)
+const compChallenges = ref<CompetitionChallenge[]>([])
 
 const PAGE_SIZE = 16
 const page = ref(1)
@@ -103,6 +194,7 @@ async function load() {
 
 function pick(c: string) {
   active.value = c
+  viewMode.value = 'lobby'
   load()
 }
 
@@ -112,7 +204,49 @@ function onSearch() {
   searchTimer = setTimeout(load, 250)
 }
 
-onMounted(load)
+async function loadCompetitions() {
+  compList.value = await competitionsApi.list()
+}
+
+watch(selectedComp, async (c) => {
+  if (c) {
+    editionList.value = await competitionsApi.editions(c.id)
+  } else {
+    editionList.value = []
+    selectedEdition.value = null
+  }
+})
+
+watch(selectedEdition, async (e) => {
+  if (e) {
+    compChallenges.value = await competitionsApi.editionChallenges(e.id)
+  } else {
+    compChallenges.value = []
+  }
+})
+
+/** 从比赛题目详情页返回时，按 URL 参数恢复到原来的比赛 / 届次 */
+async function restoreCompFromQuery() {
+  if (route.query.tab !== 'competitions') return
+  viewMode.value = 'competitions'
+  if (!compList.value.length) await loadCompetitions()
+  const target = compList.value.find((c) => c.id === Number(route.query.comp))
+  if (!target) return
+  selectedComp.value = target
+  const editions = await competitionsApi.editions(target.id)
+  editionList.value = editions
+  const edition = editions.find((e) => e.id === Number(route.query.edition))
+  if (edition) {
+    selectedEdition.value = edition
+    compChallenges.value = await competitionsApi.editionChallenges(edition.id)
+  }
+}
+
+onMounted(async () => {
+  load()
+  await loadCompetitions()
+  await restoreCompFromQuery()
+})
 </script>
 
 <style scoped>
@@ -129,7 +263,7 @@ onMounted(load)
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
-  background: rgba(16, 24, 35, 0.5);
+  background: var(--panel-translucent);
   border: 1px solid var(--line);
   border-radius: 6px;
 }
@@ -143,10 +277,39 @@ onMounted(load)
   justify-content: space-between;
   gap: 16px;
 }
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.submit-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: 1px solid rgba(var(--green-rgb), 0.45);
+  border-radius: 6px;
+  background: rgba(var(--green-rgb), 0.06);
+  color: var(--green);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.15s;
+}
+.submit-trigger:hover {
+  border-color: var(--green);
+  background: rgba(var(--green-rgb), 0.12);
+  box-shadow: 0 0 12px rgba(var(--green-rgb), 0.12);
+}
+.submit-trigger .plus {
+  font-family: var(--mono);
+  font-size: 16px;
+  line-height: 1;
+}
 .page-title {
   font-size: 26px;
   font-weight: 800;
-  color: #eaf4ff;
+  color: var(--text-strong);
 }
 .search {
   display: flex;
@@ -184,7 +347,7 @@ onMounted(load)
 }
 .tab:hover { color: var(--text); border-color: var(--green); }
 .tab.active {
-  color: #06261a;
+  color: var(--on-accent);
   background: var(--green);
   border-color: var(--green);
   font-weight: 700;
@@ -208,14 +371,15 @@ onMounted(load)
   transition: 0.18s;
 }
 .card:hover {
-  border-color: var(--green);
-  box-shadow: 0 0 18px rgba(0, 255, 159, 0.16);
-  transform: translateY(-3px);
+  border-color: var(--card-hover-border);
+  background: var(--card-hover-bg);
+  box-shadow: var(--card-hover-shadow);
+  transform: var(--card-hover-transform);
 }
 .card.solved {
-  border-color: rgba(0, 255, 159, 0.55);
-  background: linear-gradient(180deg, rgba(0, 255, 159, 0.07), var(--panel));
-  box-shadow: 0 0 14px rgba(0, 255, 159, 0.12);
+  border-color: rgba(var(--green-rgb), 0.55);
+  background: linear-gradient(180deg, rgba(var(--green-rgb), 0.07), var(--panel));
+  box-shadow: 0 0 14px rgba(var(--green-rgb), 0.12);
 }
 .c-title-row {
   display: flex;
@@ -227,11 +391,11 @@ onMounted(load)
   flex-shrink: 0;
   font-size: 11px;
   font-weight: 800;
-  color: #06261a;
+  color: var(--on-accent);
   background: var(--green);
   border-radius: 4px;
   padding: 2px 7px;
-  box-shadow: 0 0 10px rgba(0, 255, 159, 0.8);
+  box-shadow: 0 0 10px rgba(var(--green-rgb), 0.8);
   letter-spacing: 0.5px;
 }
 .c-state {
@@ -250,22 +414,21 @@ onMounted(load)
 .c-state.done {
   border-color: var(--green);
   background: var(--green);
-  color: #06261a;
-  box-shadow: 0 0 10px rgba(0, 255, 159, 0.8), 0 0 4px rgba(0, 255, 159, 0.6);
+  color: var(--on-accent);
+  box-shadow: 0 0 10px rgba(var(--green-rgb), 0.8), 0 0 4px rgba(var(--green-rgb), 0.6);
 }
 .c-pts {
   font-family: var(--mono);
   font-size: 20px;
   font-weight: 700;
   color: var(--green);
-  text-shadow: 0 0 10px rgba(0, 255, 159, 0.35);
+  text-shadow: 0 0 10px rgba(var(--green-rgb), 0.35);
 }
 .c-title {
   font-size: 17px;
   font-weight: 700;
-  color: #eaf4ff;
-  line-height: 1.45;
-  flex: 1;
+  color: var(--text-strong);
+  line-height: 1.3;
   overflow: hidden;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -275,12 +438,12 @@ onMounted(load)
   align-self: flex-start;
   font-size: 12px;
   color: var(--cyan);
-  border: 1px solid rgba(0, 224, 255, 0.4);
+  border: 1px solid rgba(var(--cyan-rgb), 0.4);
   padding: 1px 8px;
   border-radius: 4px;
 }
 .c-stars { color: var(--dim); font-size: 12px; letter-spacing: 1px; }
-.c-stars .st.on { color: var(--amber); text-shadow: 0 0 6px rgba(245, 166, 35, 0.5); }
+.c-stars .st.on { color: var(--amber); text-shadow: 0 0 6px rgba(var(--amber-rgb), 0.5); }
 .c-foot {
   display: flex;
   justify-content: space-between;
@@ -321,5 +484,114 @@ onMounted(load)
   font-family: var(--mono);
   font-size: 13px;
   color: var(--muted);
+}
+
+/* 比赛真题视图 */
+.comp-tab { border-color: rgba(255, 193, 7, 0.4); color: var(--amber); }
+.comp-tab.active { background: rgba(255, 193, 7, 0.15); border-color: var(--amber); color: var(--amber); }
+.comp-card { cursor: pointer; padding: 16px 16px 14px; min-height: 120px; }
+.comp-card:hover { border-color: var(--amber); box-shadow: 0 0 16px rgba(255, 193, 7, 0.1); }
+/* 比赛题目解出后用琥珀色标记（与比赛板块的黄色边框一致，而不是题库的绿色） */
+.comp-card.comp-solved {
+  border-color: rgba(var(--amber-rgb), 0.65);
+  background: linear-gradient(180deg, rgba(var(--amber-rgb), 0.09), var(--panel));
+  box-shadow: 0 0 14px rgba(var(--amber-rgb), 0.14);
+}
+.comp-card.comp-solved:hover {
+  border-color: var(--amber);
+  box-shadow: 0 0 18px rgba(var(--amber-rgb), 0.22);
+}
+.comp-card .c-state.done {
+  border-color: var(--amber);
+  background: var(--amber);
+  color: var(--on-amber);
+  box-shadow: 0 0 10px rgba(var(--amber-rgb), 0.8), 0 0 4px rgba(var(--amber-rgb), 0.6);
+}
+.comp-card .solved-badge {
+  color: var(--on-amber);
+  background: var(--amber);
+  box-shadow: 0 0 10px rgba(var(--amber-rgb), 0.8);
+}
+.comp-card:hover .go { color: var(--amber); }
+/* 届次卡片：该届已得分数 */
+.comp-earned {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+}
+.comp-earned .ce-label {
+  font-size: 12px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+.comp-earned b {
+  font-family: var(--mono);
+  font-size: 30px;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--muted);
+  transition: color 0.2s;
+}
+/* 有得分时才点亮：琥珀色 + 呼吸光晕，和比赛板块的黄色调一致 */
+.comp-earned.scored b {
+  color: var(--amber);
+  animation: scorePulse 2.4s ease-in-out infinite;
+}
+@keyframes scorePulse {
+  0%,
+  100% {
+    text-shadow: 0 0 8px rgba(var(--amber-rgb), 0.35), 0 0 18px rgba(var(--amber-rgb), 0.15);
+  }
+  50% {
+    text-shadow: 0 0 16px rgba(var(--amber-rgb), 0.8), 0 0 34px rgba(var(--amber-rgb), 0.4);
+  }
+}
+.c-icon { font-size: 28px; }
+.c-desc {
+  font-size: 13px;
+  color: var(--muted);
+  /* 与上方比赛名称拉开距离（.card 的 gap 之外再加一段间距） */
+  margin-top: 16px;
+  line-height: 1.4;
+  /* 卡片尺寸固定不变：简介占据剩余空间，过长时在卡片内滚动，内容仍可完整查看 */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  /* 长串（无空格的英文/链接）也不会撑破卡片 */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line2) transparent;
+}
+.c-desc::-webkit-scrollbar { width: 6px; }
+.c-desc::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 3px; }
+.c-desc::-webkit-scrollbar-thumb:hover { background: var(--green); }
+.edition-view { display: flex; flex-direction: column; gap: 16px; }
+.back {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--cyan);
+  cursor: pointer;
+  width: fit-content;
+}
+.back:hover { color: var(--green); }
+.edition-title {
+  font-size: 22px;
+  color: var(--text-strong);
+  margin: 0;
+}
+@media (max-width: 820px) {
+  .head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
 }
 </style>
