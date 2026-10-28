@@ -6,6 +6,7 @@
           <span class="sh"></span>CYBERRANGE
         </router-link>
         <nav class="nav">
+          <router-link to="/overview">总览</router-link>
           <router-link to="/challenges">题库</router-link>
           <router-link to="/traffic">流量分析</router-link>
           <router-link to="/leaderboard">排行榜</router-link>
@@ -89,6 +90,39 @@
                 {{ auth.user.role === 'admin' ? 'ADMIN' : auth.user.username }}
               </button>
             </router-link>
+            <div ref="accountRef" class="account-wrap">
+              <button class="btn account-trigger" type="button" @click.stop="accountOpen = !accountOpen">
+                切换账号
+              </button>
+              <div v-if="accountOpen" class="account-panel" @click.stop>
+                <div class="account-head">
+                  <span>已登录账号</span>
+                  <small>各标签页独立保持</small>
+                </div>
+                <div class="account-current">
+                  <span class="account-dot"></span>
+                  <span>{{ auth.user.username }}</span>
+                  <small>当前标签页</small>
+                </div>
+                <button
+                  v-for="account in otherAccounts"
+                  :key="account.token"
+                  class="account-item"
+                  type="button"
+                  :disabled="accountSwitching === account.token"
+                  @click="switchToAccount(account)"
+                >
+                  <span>{{ account.username }}</span>
+                  <small>{{ accountSwitching === account.token ? '切换中…' : '切换' }}</small>
+                </button>
+                <div v-if="otherAccounts.length === 0" class="account-empty">
+                  暂无其他已登录账号
+                </div>
+                <button class="account-login" type="button" @click="loginAnotherAccount">
+                  + 登录其他账号
+                </button>
+              </div>
+            </div>
             <button class="btn" @click="onLogout">退出</button>
           </template>
           <template v-else>
@@ -117,6 +151,7 @@ import { notificationsApi, type NotificationItem } from '../api/notifications'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useAuthStore } from '../stores/auth'
 import { parseServerDate } from '../utils/datetime'
+import type { SavedSession } from '../utils/authSession'
 
 const router = useRouter()
 const route = useRoute()
@@ -124,9 +159,15 @@ const auth = useAuthStore()
 
 const notifRef = ref<HTMLElement | null>(null)
 const notifOpen = ref(false)
+const accountRef = ref<HTMLElement | null>(null)
+const accountOpen = ref(false)
+const accountSwitching = ref('')
 const notifLoading = ref(false)
 const notifications = ref<NotificationItem[]>([])
 const unreadCount = computed(() => notifications.value.filter((item) => !item.is_read).length)
+const otherAccounts = computed(() =>
+  auth.savedAccounts.filter((account) => account.token !== auth.token),
+)
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
 async function loadNotifications() {
@@ -147,9 +188,12 @@ function toggleNotifications() {
 }
 
 function closeOnOutside(event: MouseEvent) {
-  if (!notifOpen.value) return
-  if (notifRef.value && !notifRef.value.contains(event.target as Node)) {
+  const target = event.target as Node
+  if (notifOpen.value && notifRef.value && !notifRef.value.contains(target)) {
     notifOpen.value = false
+  }
+  if (accountOpen.value && accountRef.value && !accountRef.value.contains(target)) {
+    accountOpen.value = false
   }
 }
 
@@ -208,8 +252,33 @@ onBeforeUnmount(() => {
   if (pollTimer) clearInterval(pollTimer)
 })
 
+async function switchToAccount(account: SavedSession) {
+  if (accountSwitching.value) return
+  accountSwitching.value = account.token
+  try {
+    await auth.switchAccount(account.token)
+    accountOpen.value = false
+    notifications.value = []
+    await loadNotifications()
+    await router.push('/profile')
+  } catch (e) {
+    window.alert(`账号切换失败：${(e as Error).message}`)
+  } finally {
+    accountSwitching.value = ''
+  }
+}
+
+function loginAnotherAccount() {
+  accountOpen.value = false
+  router.push({
+    name: 'login',
+    query: { switch: '1', redirect: route.fullPath },
+  })
+}
+
 function onLogout() {
   auth.logout()
+  accountOpen.value = false
   router.push('/')
 }
 </script>
@@ -370,4 +439,104 @@ function onLogout() {
   font-size: 12px;
   text-align: center;
 }
+
+.account-wrap {
+  position: relative;
+}
+.account-trigger {
+  white-space: nowrap;
+}
+.account-panel {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 130;
+  width: 238px;
+  overflow: hidden;
+  border: 1px solid var(--line2);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.48);
+}
+.account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+}
+.account-head small,
+.account-current small,
+.account-item small {
+  color: var(--dim);
+  font-size: 9px;
+  font-weight: 400;
+}
+.account-current,
+.account-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  padding: 10px 13px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--text);
+  font-size: 12px;
+  text-align: left;
+}
+.account-current {
+  color: var(--green);
+}
+.account-current small {
+  margin-left: auto;
+}
+.account-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px rgba(var(--green-rgb), 0.75);
+}
+.account-item {
+  cursor: pointer;
+}
+.account-item:hover:not(:disabled) {
+  background: rgba(var(--green-rgb), 0.06);
+  color: var(--green);
+}
+.account-item:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.account-item span {
+  flex: 1;
+}
+.account-empty {
+  padding: 15px 13px;
+  border-bottom: 1px solid var(--line);
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+}
+.account-login {
+  width: 100%;
+  padding: 11px 13px;
+  border: 0;
+  background: rgba(var(--green-rgb), 0.05);
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.account-login:hover {
+  background: rgba(var(--green-rgb), 0.1);
+}
+
 </style>

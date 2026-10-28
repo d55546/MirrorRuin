@@ -15,6 +15,8 @@
     :msg-ok="msgOk"
     :my-rank="0"
     :solvers="[]"
+    comment-target-type="competition"
+    :comment-target-id="Number(route.params.id)"
     @submit="submitFlag"
   />
 </template>

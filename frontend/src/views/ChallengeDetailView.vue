@@ -18,6 +18,8 @@
     :can-favorite="canFavorite"
     :favorited="favorited"
     :favorite-busy="favoriteBusy"
+    comment-target-type="challenge"
+    :comment-target-id="Number(route.params.id)"
     @submit="submitFlag"
     @toggle-favorite="toggleFavorite"
   />

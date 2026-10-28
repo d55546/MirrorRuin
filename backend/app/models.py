@@ -3,6 +3,7 @@ from datetime import datetime
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Integer,
@@ -82,6 +83,64 @@ class Favorite(Base):
     challenge_id: Mapped[int] = mapped_column(
         ForeignKey("challenges.id"), index=True, nullable=False
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Comment(Base):
+    """题目讨论区评论，可关联题库题目或比赛真题。"""
+
+    __tablename__ = "comments"
+    __table_args__ = (
+        CheckConstraint(
+            "(challenge_id IS NOT NULL AND competition_challenge_id IS NULL) OR "
+            "(challenge_id IS NULL AND competition_challenge_id IS NOT NULL)",
+            name="ck_comment_single_target",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    challenge_id: Mapped[int | None] = mapped_column(
+        ForeignKey("challenges.id"), index=True, nullable=True
+    )
+    competition_challenge_id: Mapped[int | None] = mapped_column(
+        ForeignKey("competition_challenges.id"), index=True, nullable=True
+    )
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user: Mapped["User"] = relationship()
+
+
+class Friendship(Base):
+    """好友关系：pending 表示待接受，accepted 表示已成为好友。"""
+
+    __tablename__ = "friendships"
+    __table_args__ = (
+        UniqueConstraint("requester_id", "addressee_id", name="uq_friendship_pair"),
+        CheckConstraint("requester_id != addressee_id", name="ck_friendship_not_self"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    requester_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    addressee_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class DirectMessage(Base):
+    """好友之间的一对一私信。"""
+
+    __tablename__ = "direct_messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    sender_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    receiver_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
 

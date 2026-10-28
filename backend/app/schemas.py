@@ -137,6 +137,25 @@ class SolverOut(BaseModel):
     solved_at: datetime
 
 
+# ---------- 题目评论 ----------
+class CommentIn(BaseModel):
+    content: str = Field(min_length=1, max_length=1000)
+
+
+class CommentOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    content: str
+    created_at: datetime
+    is_mine: bool = False
+
+
+class CommentListOut(BaseModel):
+    items: list[CommentOut]
+    total: int
+
+
 # ---------- 排行榜 / 个人 ----------
 class LeaderboardEntry(BaseModel):
     rank: int
@@ -233,6 +252,56 @@ class NotificationOut(BaseModel):
 
 
 # ---------- 比赛 / 真题 ----------
+# ---------- 好友 / 私信 ----------
+class SocialUserOut(BaseModel):
+    id: int
+    username: str
+    role: str
+
+
+class FriendOut(SocialUserOut):
+    last_message: str | None = None
+    last_message_at: datetime | None = None
+    unread_count: int = 0
+
+
+class FriendRequestOut(BaseModel):
+    id: int
+    user: SocialUserOut
+    created_at: datetime
+
+
+class SocialOverviewOut(BaseModel):
+    friends: list[FriendOut]
+    incoming: list[FriendRequestOut]
+    outgoing: list[FriendRequestOut]
+    unread_count: int = 0
+
+
+class FriendRequestIn(BaseModel):
+    username: str = Field(min_length=3, max_length=50)
+
+
+class DirectMessageIn(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+
+
+class DirectMessageOut(BaseModel):
+    id: int
+    sender_id: int
+    receiver_id: int
+    content: str
+    is_read: bool
+    created_at: datetime
+    is_mine: bool
+
+
+class DirectMessageListOut(BaseModel):
+    friend: SocialUserOut
+    items: list[DirectMessageOut]
+    total: int
+
+
 class CompetitionIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
     description: str = ""

@@ -151,6 +151,44 @@ with TestClient(app) as c:
     r = c.get("/api/articles?type=announcement")
     check("删除后公告不再返回", r.status_code == 200 and len(r.json()) == 0)
 
+    # 题目评论：公开读取，登录后发布，作者可删除
+    r = c.get(f"/api/comments/challenge/{new_id}")
+    check("题目评论初始为空", r.status_code == 200 and r.json()["total"] == 0)
+    r = c.post(f"/api/comments/challenge/{new_id}", json={"content": "评论测试：欢迎交流思路"}, headers=H_USER)
+    check("登录用户发布评论", r.status_code == 201 and r.json()["is_mine"] is True)
+    comment_id = r.json()["id"]
+    r = c.get(f"/api/comments/challenge/{new_id}")
+    check(
+        "匿名用户可查看评论",
+        r.status_code == 200 and r.json()["total"] == 1 and r.json()["items"][0]["username"] == "tester",
+    )
+    r = c.post(f"/api/comments/challenge/{new_id}", json={"content": "   "}, headers=H_USER)
+    check("空白评论被拒绝", r.status_code == 422)
+    r = c.delete(f"/api/comments/{comment_id}", headers=H_USER)
+    check("作者可删除自己的评论", r.status_code == 200 and r.json()["success"] is True)
+
+    # 好友申请、接受和双向私信
+    r = c.get("/api/social/search", params={"q": "admin"}, headers=H_USER)
+    check("可按用户名搜索", r.status_code == 200 and any(u["username"] == "admin" for u in r.json()))
+    admin_user = next(u for u in r.json() if u["username"] == "admin")
+    r = c.get("/api/users/me", headers=H_USER)
+    tester_id = r.json()["id"]
+    r = c.post("/api/social/requests", json={"username": "admin"}, headers=H_USER)
+    check("可发送好友申请", r.status_code == 201 and r.json()["user"]["username"] == "admin")
+    request_id = r.json()["id"]
+    r = c.get("/api/social/overview", headers=H_ADMIN)
+    check("对方收到好友申请", r.status_code == 200 and any(x["id"] == request_id for x in r.json()["incoming"]))
+    r = c.post(f"/api/social/messages/{admin_user['id']}", json={"content": "未成为好友前不能发送"}, headers=H_USER)
+    check("非好友不能发私信", r.status_code == 403)
+    r = c.post(f"/api/social/requests/{request_id}/accept", headers=H_ADMIN)
+    check("可接受好友申请", r.status_code == 200 and r.json()["success"] is True)
+    r = c.post(f"/api/social/messages/{admin_user['id']}", json={"content": "你好，一起交流题目"}, headers=H_USER)
+    check("好友之间可发送私信", r.status_code == 201 and r.json()["is_mine"] is True)
+    r = c.get(f"/api/social/messages/{tester_id}", headers=H_ADMIN)
+    check("对方可收到私信", r.status_code == 200 and r.json()["total"] == 1 and r.json()["items"][0]["content"] == "你好，一起交流题目")
+    r = c.delete(f"/api/social/friends/{tester_id}", headers=H_ADMIN)
+    check("可删除好友", r.status_code == 200 and r.json()["success"] is True)
+
     # 用户提交题目 -> 管理员通知/审核 -> 用户反馈通知
     r = c.post("/api/challenges/submit", json={
         "title": "用户投稿题",

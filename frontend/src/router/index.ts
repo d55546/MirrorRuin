@@ -9,7 +9,8 @@ const router = createRouter({
       path: '/',
       component: MainLayout,
       children: [
-        { path: '', name: 'home', component: () => import('../views/HomeView.vue') },
+        { path: '', name: 'home', component: () => import('../views/InitializationView.vue') },
+        { path: 'overview', name: 'overview', component: () => import('../views/HomeView.vue') },
         { path: 'challenges', name: 'challenges', component: () => import('../views/ChallengesView.vue') },
         { path: 'challenge/:id', name: 'challenge', component: () => import('../views/ChallengeDetailView.vue') },
         { path: 'comp-challenge/:id', name: 'comp-challenge', component: () => import('../views/CompChallengeDetailView.vue') },

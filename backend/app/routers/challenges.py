@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..dependencies import get_current_user, get_current_user_optional, require_role
-from ..models import Challenge, Favorite, Notification, SolveRecord, User
+from ..models import Challenge, Comment, Favorite, Notification, SolveRecord, User
 from ..schemas import (
     AdminChallengeOut,
     ChallengeCard,
@@ -389,6 +389,9 @@ def admin_delete_challenge(
     ch = db.get(Challenge, challenge_id)
     if ch is None:
         raise HTTPException(status_code=404, detail="题目不存在")
+    db.query(Comment).filter(Comment.challenge_id == challenge_id).delete(
+        synchronize_session=False
+    )
     db.delete(ch)
     db.commit()
 

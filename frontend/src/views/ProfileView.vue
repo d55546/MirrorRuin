@@ -131,6 +131,11 @@
         </table>
       </section>
 
+      <!-- 好友与聊天 -->
+      <section v-else-if="view === 'social'" class="social-wrap">
+        <FriendsPanel />
+      </section>
+
       <!-- 账号设置 -->
       <section v-else-if="view === 'account'" class="panel">
         <div class="panel-t">账号设置</div>
@@ -200,14 +205,22 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { challengesApi, type FavoriteChallenge, type Profile } from '../api/challenges'
+import FriendsPanel from '../components/FriendsPanel.vue'
 import { usersApi } from '../api/users'
 import { useAuthStore } from '../stores/auth'
 import { parseServerDate } from '../utils/datetime'
 
 const auth = useAuthStore()
+const route = useRoute()
 const p = ref<Profile | null>(null)
-const view = ref<string>('progress')
+const initialView = typeof route.query.view === 'string' ? route.query.view : 'progress'
+const view = ref<string>(
+  ['progress', 'solves', 'fav', 'social', 'account'].includes(initialView)
+    ? initialView
+    : 'progress',
+)
 const favorites = ref<FavoriteChallenge[]>([])
 const favLoading = ref(true)
 const favBusyId = ref<number | null>(null)
@@ -226,6 +239,7 @@ const menu = [
   { id: 'progress', label: '我的进度' },
   { id: 'solves', label: '解题记录' },
   { id: 'fav', label: '我的收藏' },
+  { id: 'social', label: '好友与聊天' },
   { id: 'account', label: '账号设置' },
 ]
 const currentMenu = computed(() => menu.find((m) => m.id === view.value))

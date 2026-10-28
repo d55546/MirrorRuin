@@ -235,11 +235,12 @@ session.<span class="fn">sniff</span>(count=<span class="s">128</span>)</code></
 
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onMounted, ref, useId, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import ThemeToggle from '../components/ThemeToggle.vue'
 import { useAuthStore } from '../stores/auth'
 
 const props = defineProps<{ mode?: string }>()
+const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
@@ -338,7 +339,24 @@ onBeforeUnmount(() => {
 })
 
 function toggleMode() {
-  router.replace(mode.value === 'login' ? '/register' : '/login')
+  const next = mode.value === 'login' ? 'register' : 'login'
+  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : undefined
+  router.replace({
+    path: next === 'login' ? '/login' : '/register',
+    query: redirect ? { redirect } : {},
+  })
+}
+
+function loginDestination() {
+  const redirect = route.query.redirect
+  if (
+    typeof redirect === 'string' &&
+    redirect.startsWith('/') &&
+    !redirect.startsWith('//')
+  ) {
+    return redirect
+  }
+  return '/'
 }
 
 async function submit() {
@@ -365,7 +383,7 @@ async function submit() {
     } else {
       await auth.register(username.value, email.value, password.value)
     }
-    router.push('/')
+    router.push(loginDestination())
   } catch (e) {
     error.value = (e as Error).message
   } finally {

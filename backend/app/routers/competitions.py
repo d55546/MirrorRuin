@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from ..database import get_db
 from ..dependencies import get_current_user, get_current_user_optional, require_role
 from ..models import (
+    Comment,
     Competition,
     CompetitionChallenge,
     CompetitionEdition,
@@ -283,8 +284,22 @@ def delete_competition(
         raise HTTPException(status_code=404, detail="比赛不存在")
     # 级联删除届次和题目
     eds = db.query(CompetitionEdition).filter(CompetitionEdition.competition_id == cid).all()
+    edition_ids = [ed.id for ed in eds]
+    if edition_ids:
+        challenge_ids = [
+            row[0]
+            for row in db.query(CompetitionChallenge.id)
+            .filter(CompetitionChallenge.edition_id.in_(edition_ids))
+            .all()
+        ]
+        if challenge_ids:
+            db.query(Comment).filter(
+                Comment.competition_challenge_id.in_(challenge_ids)
+            ).delete(synchronize_session=False)
+        db.query(CompetitionChallenge).filter(
+            CompetitionChallenge.edition_id.in_(edition_ids)
+        ).delete(synchronize_session=False)
     for ed in eds:
-        db.query(CompetitionChallenge).filter(CompetitionChallenge.edition_id == ed.id).delete()
         db.delete(ed)
     db.delete(comp)
     db.commit()
@@ -302,6 +317,16 @@ def delete_edition(
     ed = db.query(CompetitionEdition).filter(CompetitionEdition.id == eid).first()
     if not ed:
         raise HTTPException(status_code=404, detail="届次不存在")
+    challenge_ids = [
+        row[0]
+        for row in db.query(CompetitionChallenge.id)
+        .filter(CompetitionChallenge.edition_id == eid)
+        .all()
+    ]
+    if challenge_ids:
+        db.query(Comment).filter(
+            Comment.competition_challenge_id.in_(challenge_ids)
+        ).delete(synchronize_session=False)
     db.query(CompetitionChallenge).filter(CompetitionChallenge.edition_id == eid).delete()
     db.delete(ed)
     db.commit()
@@ -317,6 +342,9 @@ def delete_competition_challenge(
     ch = db.query(CompetitionChallenge).filter(CompetitionChallenge.id == cid).first()
     if not ch:
         raise HTTPException(status_code=404, detail="题目不存在")
+    db.query(Comment).filter(Comment.competition_challenge_id == cid).delete(
+        synchronize_session=False
+    )
     db.delete(ch)
     db.commit()
     return {"success": True}

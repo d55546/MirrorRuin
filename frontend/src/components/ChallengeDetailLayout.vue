@@ -70,6 +70,12 @@
           </div>
           <p v-if="msg" class="msg" :class="msgOk ? 'ok' : 'err'">{{ msg }}</p>
         </div>
+
+        <ChallengeComments
+          v-if="commentTargetType && commentTargetId"
+          :target-type="commentTargetType"
+          :target-id="commentTargetId"
+        />
       </div>
 
       <!-- 右侧栏 -->
@@ -122,6 +128,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import ChallengeComments from './ChallengeComments.vue'
 
 export interface DetailVM {
   title: string
@@ -161,6 +168,8 @@ const props = defineProps<{
   canFavorite?: boolean
   favorited?: boolean
   favoriteBusy?: boolean
+  commentTargetType?: 'challenge' | 'competition'
+  commentTargetId?: number
 }>()
 
 const emit = defineEmits<{
